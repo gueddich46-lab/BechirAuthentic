@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.view.WindowManager
+import android.view.WindowInsets
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -16,7 +18,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class MainActivity : Activity() {
     private val names = arrayOf("صورة القطعة", "صورة الشعار", "صورة الملصق الداخلي", "صورة رقم المنتج")
-    private val brands = arrayOf("Nike", "Adidas", "Lacoste")
+    private val brands = arrayOf("اختر الماركة أولًا", "Nike", "Adidas", "Lacoste")
     private val selected = arrayOfNulls<Uri>(4)
     private lateinit var status: TextView
     private lateinit var previews: Array<ImageView>
@@ -24,7 +26,7 @@ class MainActivity : Activity() {
     private lateinit var extracted: TextView
     private lateinit var modelInput: EditText
     private lateinit var brandSpinner: Spinner
-    private var brand = "Nike"
+    private var brand = ""
     private val bg = Color.rgb(17, 13, 31)
     private val accent = Color.rgb(207, 187, 255)
 
@@ -47,11 +49,20 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { setBackgroundColor(bg); isFillViewport = true }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 72, 28, 110)
+            setPadding(28, 32, 28, 60)
         }
         scroll.addView(layout)
+        if (Build.VERSION.SDK_INT >= 30) {
+            scroll.setOnApplyWindowInsetsListener { view, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                view.setPadding(0, bars.top, 0, bars.bottom)
+                insets
+            }
+        } else {
+            scroll.fitsSystemWindows = true
+        }
         layout.addView(label("BECHIR AUTHENTIC", 25f))
-        layout.addView(label("فحص مؤشرات أصالة المنتجات — نسخة 0.3", 16f, accent))
+        layout.addView(label("فحص مؤشرات أصالة المنتجات — نسخة 0.4", 16f, accent))
         layout.addView(label("اختر الماركة", 18f))
         val spinner = Spinner(this)
         brandSpinner = spinner
@@ -65,7 +76,7 @@ class MainActivity : Activity() {
         spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                brand = brands[position]
+                brand = if (position == 0) "" else brands[position]
             }
         }
         layout.addView(spinner)
@@ -113,7 +124,9 @@ class MainActivity : Activity() {
             text = "البحث عن الموديل على الإنترنت"
             setOnClickListener {
                 val code = modelInput.text.toString().trim()
-                if (code.isBlank()) {
+                if (brand.isBlank()) {
+                    Toast.makeText(this@MainActivity, "اختر الماركة أولًا", Toast.LENGTH_LONG).show()
+                } else if (code.isBlank()) {
                     Toast.makeText(this@MainActivity, "أدخل رقم الموديل أولًا", Toast.LENGTH_LONG).show()
                 } else {
                     val query = Uri.encode(brand + " " + code + " official product")
@@ -153,6 +166,7 @@ class MainActivity : Activity() {
                     if (result.text.isNotBlank()) {
                         val candidates = Regex("""(?:[0-9]-)?[0-9A-Z]{3,}(?:-[0-9A-Z]+)+""").findAll(result.text.uppercase()).map { it.value }.toList()
                         if (candidates.isNotEmpty()) modelInput.setText(candidates.maxByOrNull { it.length } ?: "")
+                        if (brand.isBlank() && result.text.contains("LEROND", ignoreCase = true)) brandSpinner.setSelection(3)
                     }
                 }
                 .addOnFailureListener { extracted.text = "تعذرت قراءة الصورة. جرّب صورة أوضح." }
