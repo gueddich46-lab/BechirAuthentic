@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.view.WindowManager
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -21,6 +22,8 @@ class MainActivity : Activity() {
     private lateinit var previews: Array<ImageView>
     private lateinit var buttons: Array<Button>
     private lateinit var extracted: TextView
+    private lateinit var modelInput: EditText
+    private lateinit var brandSpinner: Spinner
     private var brand = "Nike"
     private val bg = Color.rgb(17, 13, 31)
     private val accent = Color.rgb(207, 187, 255)
@@ -40,16 +43,18 @@ class MainActivity : Activity() {
         window.statusBarColor = bg
         window.navigationBarColor = bg
         window.decorView.systemUiVisibility = 0
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val scroll = ScrollView(this).apply { setBackgroundColor(bg); isFillViewport = true }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 48, 28, 48)
+            setPadding(28, 72, 28, 110)
         }
         scroll.addView(layout)
         layout.addView(label("BECHIR AUTHENTIC", 25f))
-        layout.addView(label("فحص مؤشرات أصالة المنتجات — نسخة 0.2", 16f, accent))
+        layout.addView(label("فحص مؤشرات أصالة المنتجات — نسخة 0.3", 16f, accent))
         layout.addView(label("اختر الماركة", 18f))
         val spinner = Spinner(this)
+        brandSpinner = spinner
         val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, brands) {
             override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
                 super.getView(position, convertView, parent).apply {
@@ -93,6 +98,30 @@ class MainActivity : Activity() {
         layout.addView(scan)
         extracted = label("لم تتم قراءة أي ملصق بعد.", 15f, accent)
         layout.addView(extracted)
+        layout.addView(label("رقم الموديل — يمكنك تصحيح قراءة الصورة", 17f))
+        modelInput = EditText(this).apply {
+            hint = "مثال: 7-40CFA000302H"
+            setHintTextColor(Color.LTGRAY)
+            setTextColor(Color.WHITE)
+            textDirection = View.TEXT_DIRECTION_LTR
+            setSingleLine(true)
+            setPadding(16, 18, 16, 18)
+            setBackgroundColor(Color.rgb(43, 35, 62))
+        }
+        layout.addView(modelInput)
+        layout.addView(Button(this).apply {
+            text = "البحث عن الموديل على الإنترنت"
+            setOnClickListener {
+                val code = modelInput.text.toString().trim()
+                if (code.isBlank()) {
+                    Toast.makeText(this@MainActivity, "أدخل رقم الموديل أولًا", Toast.LENGTH_LONG).show()
+                } else {
+                    val query = Uri.encode(brand + " " + code + " official product")
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + query)))
+                }
+            }
+        })
+        layout.addView(label("يفتح البحث في المتصفح. النتائج ليست تحققًا رسميًا من أصالة القطعة.", 14f, accent))
         status = label("أضف الصور لبدء فحص البيانات.", 16f, Color.LTGRAY)
         layout.addView(status)
         layout.addView(Button(this).apply {
@@ -121,6 +150,10 @@ class MainActivity : Activity() {
                 .addOnSuccessListener { result ->
                     extracted.text = if (result.text.isBlank()) "لم يُعثر على نص واضح. أعد تصوير الملصق بإضاءة جيدة."
                         else "النص المقروء (تحقق منه يدويًا):\n" + result.text
+                    if (result.text.isNotBlank()) {
+                        val candidates = Regex("""(?:[0-9]-)?[0-9A-Z]{3,}(?:-[0-9A-Z]+)+""").findAll(result.text.uppercase()).map { it.value }.toList()
+                        if (candidates.isNotEmpty()) modelInput.setText(candidates.maxByOrNull { it.length } ?: "")
+                    }
                 }
                 .addOnFailureListener { extracted.text = "تعذرت قراءة الصورة. جرّب صورة أوضح." }
                 .addOnCompleteListener { recognizer.close() }
