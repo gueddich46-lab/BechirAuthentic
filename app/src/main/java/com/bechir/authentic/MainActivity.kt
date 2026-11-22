@@ -9,6 +9,10 @@ import android.view.WindowManager
 import android.view.WindowInsets
 import android.os.Build
 import android.os.Bundle
+import java.net.URL
+import java.net.HttpURLConnection
+import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.concurrent.thread
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -26,6 +30,7 @@ class MainActivity : Activity() {
     private lateinit var extracted: TextView
     private lateinit var modelInput: EditText
     private lateinit var brandSpinner: Spinner
+    private lateinit var searchReport: TextView
     private var brand = ""
     private val bg = Color.rgb(17, 13, 31)
     private val accent = Color.rgb(207, 187, 255)
@@ -62,7 +67,7 @@ class MainActivity : Activity() {
             scroll.fitsSystemWindows = true
         }
         layout.addView(label("BECHIR AUTHENTIC", 25f))
-        layout.addView(label("فحص مؤشرات أصالة المنتجات — نسخة 0.4", 16f, accent))
+        layout.addView(label("فحص مؤشرات أصالة المنتجات — نسخة 0.5", 16f, accent))
         layout.addView(label("اختر الماركة", 18f))
         val spinner = Spinner(this)
         brandSpinner = spinner
@@ -121,20 +126,11 @@ class MainActivity : Activity() {
         }
         layout.addView(modelInput)
         layout.addView(Button(this).apply {
-            text = "البحث عن الموديل على الإنترنت"
-            setOnClickListener {
-                val code = modelInput.text.toString().trim()
-                if (brand.isBlank()) {
-                    Toast.makeText(this@MainActivity, "اختر الماركة أولًا", Toast.LENGTH_LONG).show()
-                } else if (code.isBlank()) {
-                    Toast.makeText(this@MainActivity, "أدخل رقم الموديل أولًا", Toast.LENGTH_LONG).show()
-                } else {
-                    val query = Uri.encode(brand + " " + code + " official product")
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + query)))
-                }
-            }
+            text = "بحث تلقائي عن الموديل وتحليل النتائج"
+            setOnClickListener { searchModel() }
         })
-        layout.addView(label("يفتح البحث في المتصفح. النتائج ليست تحققًا رسميًا من أصالة القطعة.", 14f, accent))
+        searchReport = label("لم يبدأ البحث بعد. نتائج البحث ليست إثباتًا للأصالة.", 15f, accent)
+        layout.addView(searchReport)
         status = label("أضف الصور لبدء فحص البيانات.", 16f, Color.LTGRAY)
         layout.addView(status)
         layout.addView(Button(this).apply {
@@ -147,6 +143,64 @@ class MainActivity : Activity() {
         })
         layout.addView(label("قراءة النص لا تثبت أن القطعة أصلية. لا توجد شهادة تحقق رسمية.", 14f, accent))
         setContentView(scroll)
+    }
+
+
+    private fun searchModel() {
+        val code = modelInput.text.toString().trim().uppercase().replace(" ", "")
+        if (brand.isBlank() || code.isBlank()) {
+            searchReport.text = "اختر الماركة وأدخل رقم المنتج أولًا."
+            return
+        }
+        searchReport.text = "جارٍ البحث تلقائيًا... قد يستغرق بضع ثوانٍ."
+        thread {
+            try {
+                val query = Uri.encode("$brand $code")
+                val connection = URL("https://www.bing.com/search?format=rss&q=$query").openConnection() as HttpURLConnection
+                connection.connectTimeout = 12000
+                connection.readTimeout = 12000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (compatible; BechirAuthentic/0.5)")
+                val entries = connection.inputStream.use { input ->
+                    val factory = DocumentBuilderFactory.newInstance()
+                    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                    factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
+                    factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                    val doc = factory.newDocumentBuilder().parse(input)
+                    val nodes = doc.getElementsByTagName("item")
+                    (0 until minOf(nodes.length, 5)).map { i ->
+                        val node = nodes.item(i)
+                        val children = node.childNodes
+                        fun field(name: String): String {
+                            for (j in 0 until children.length) {
+                                if (children.item(j).nodeName == name) return children.item(j).textContent.orEmpty()
+                            }
+                            return ""
+                        }
+                        Triple(field("title"), field("link"), field("description"))
+                    }
+                }
+                connection.disconnect()
+                val exact = entries.count { (title, _, description) ->
+                    (title + " " + description).uppercase().replace(Regex("[^A-Z0-9]"), "")
+                        .contains(code.replace(Regex("[^A-Z0-9]"), ""))
+                }
+                val message = if (entries.isEmpty()) "لم تُرجع خدمة البحث نتائج. لا يمكن تحديد الأصالة."
+                    else buildString {
+                        append("نتائج البحث: ${entries.size}\n")
+                        append("نتائج تذكر الرمز كاملًا: $exact\n")
+                        append(if (exact > 0) "عُثر على إشارات للرمز في نتائج الويب؛ لم تُراجع صحة المصادر أو الصور."
+                            else "لم يظهر تطابق نصي كامل في النتائج المسترجعة.")
+                        append("\n\n")
+                        entries.forEachIndexed { i, (title, link, _) ->
+                            append("${i + 1}. $title\n$link\n\n")
+                        }
+                        append("الحكم على الأصالة: أدلة غير كافية. تطابق رمز الموديل لا يثبت أصالة القطعة.")
+                    }
+                runOnUiThread { searchReport.text = message }
+            } catch (e: Exception) {
+                runOnUiThread { searchReport.text = "تعذر البحث التلقائي أو قراءة النتائج. تحقق من الإنترنت أو أعد المحاولة. لم يتم تحديد الأصالة." }
+            }
+        }
     }
 
     private fun recognizeLabel() {
